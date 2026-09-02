@@ -5,6 +5,7 @@ from services.user_service import UserService
 from services.account_service import AccountService
 
 REGISTER_MANUAL_INPUT = 1
+WITHDRAW_SELECT_METHOD, WITHDRAW_ENTER_AMOUNT, WITHDRAW_ENTER_DETAILS = range(20, 23)
 
 async def start_register_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     msg = (
@@ -120,28 +121,134 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     finally:
         db.close()
 
-async def withdraw_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_withdrawal_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user = update.effective_user
-    args = context.args
-    if not args or not args[0].replace('.', '', 1).isdigit():
-        await update.message.reply_text("Usage: `/withdraw <amount>`\nExample: `/withdraw 100`", parse_mode="Markdown")
-        return
-
-    amount = float(args[0])
     db = SessionLocal()
     try:
-        UserService.deduct_balance(
+        db_user = UserService.get_or_create_user(db, user.id, user.username, user.first_name)
+        if db_user.balance <= 0:
+            msg = "❌ Your balance is 0.00 ETB. You cannot perform a withdrawal."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(msg)
+            else:
+                await update.message.reply_text(msg)
+            return ConversationHandler.END
+
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("📱 Telebirr", callback_data="wd_method_Telebirr")],
+            [InlineKeyboardButton("🏦 CBE (Commercial Bank of Ethiopia)", callback_data="wd_method_CBE")]
+        ])
+        msg = f"💳 **Cashout Request**\n\nAvailable Balance: **{db_user.balance:.2f} ETB**\n\nPlease select your preferred withdrawal method:"
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        else:
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        return WITHDRAW_SELECT_METHOD
+    finally:
+        db.close()
+
+async def process_withdrawal_method(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+    data = query.data
+
+    if not data.startswith("wd_method_"):
+        return ConversationHandler.END
+
+    method = data.split("_")[2]
+    context.user_data["withdraw_method"] = method
+
+    await query.edit_message_text(
+        f"Selected Method: **{method}**\n\nPlease enter the amount in ETB you wish to withdraw:\n*(Type /cancel to abort)*",
+        parse_mode="Markdown"
+    )
+    return WITHDRAW_ENTER_AMOUNT
+
+async def process_withdrawal_amount(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text.replace('.', '', 1).isdigit():
+        await update.message.reply_text("❌ Please enter a valid number for the withdrawal amount:")
+        return WITHDRAW_ENTER_AMOUNT
+
+    amount = float(text)
+    if amount <= 0:
+        await update.message.reply_text("❌ Amount must be greater than zero. Please enter a valid amount:")
+        return WITHDRAW_ENTER_AMOUNT
+
+    user = update.effective_user
+    db = SessionLocal()
+    try:
+        db_user = UserService.get_or_create_user(db, user.id, user.username, user.first_name)
+        if db_user.balance < amount:
+            await update.message.reply_text(
+                f"❌ Insufficient balance! Your current balance is **{db_user.balance:.2f} ETB**.\nPlease enter a valid amount:",
+                parse_mode="Markdown"
+            )
+            return WITHDRAW_ENTER_AMOUNT
+    finally:
+        db.close()
+
+    context.user_data["withdraw_amount"] = amount
+    method = context.user_data.get("withdraw_method")
+
+    if method == "Telebirr":
+        prompt = "📱 Please enter your **Telebirr Phone Number** (e.g. `0912345678`):"
+    else:
+        prompt = "🏦 Please enter your **CBE Account Number and Account Holder Name** (e.g. `1000123456789 - Abebe Bikila`):"
+
+    await update.message.reply_text(prompt, parse_mode="Markdown")
+    return WITHDRAW_ENTER_DETAILS
+
+async def process_withdrawal_details(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    details = update.message.text.strip()
+    method = context.user_data.get("withdraw_method")
+    amount = context.user_data.get("withdraw_amount")
+    user = update.effective_user
+
+    db = SessionLocal()
+    try:
+        req = UserService.create_withdrawal_request(
             session=db,
             user_id=user.id,
             amount=amount,
-            tx_type=TransactionType.WITHDRAWAL,
-            description="User cashout request"
+            method=method,
+            account_details=details
         )
-        await update.message.reply_text(f"✅ Cashout request of **{amount:.2f} ETB** processed successfully!", parse_mode="Markdown")
+        await update.message.reply_text(
+            f"✅ **Withdrawal Request Submitted!**\n\n"
+            f"🆔 **Request ID:** `#{req.id}`\n"
+            f"💰 **Amount:** {amount:.2f} ETB\n"
+            f"💳 **Method:** {method}\n"
+            f"📝 **Account Details:** `{details}`\n\n"
+            f"Status: ⏳ *Pending Admin Approval*",
+            parse_mode="Markdown"
+        )
     except ValueError as e:
-        await update.message.reply_text(f"❌ Cashout failed: {str(e)}")
+        await update.message.reply_text(f"❌ Withdrawal error: {str(e)}")
     finally:
         db.close()
+        context.user_data.clear()
+
+    return ConversationHandler.END
+
+async def cancel_withdrawal(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("🚫 Withdrawal cancelled.")
+    return ConversationHandler.END
+
+withdraw_conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler("withdraw", start_withdrawal_conv),
+        CallbackQueryHandler(start_withdrawal_conv, pattern="^wallet_withdraw$")
+    ],
+    states={
+        WITHDRAW_SELECT_METHOD: [CallbackQueryHandler(process_withdrawal_method, pattern="^wd_method_")],
+        WITHDRAW_ENTER_AMOUNT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_withdrawal_amount)],
+        WITHDRAW_ENTER_DETAILS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_withdrawal_details)]
+    },
+    fallbacks=[CommandHandler("cancel", cancel_withdrawal)],
+    per_message=False
+)
 
 register_conv_handler = ConversationHandler(
     entry_points=[

@@ -18,6 +18,11 @@ class TransactionType(str, PyEnum):
     PURCHASE = "PURCHASE"
     WITHDRAWAL = "WITHDRAWAL"
 
+class WithdrawalStatus(str, PyEnum):
+    PENDING = "PENDING"
+    APPROVED = "APPROVED"
+    REJECTED = "REJECTED"
+
 class User(Base):
     __tablename__ = "users"
 
@@ -31,6 +36,23 @@ class User(Base):
     registered_accounts = relationship("Account", back_populates="creator", foreign_keys="Account.creator_id")
     bought_accounts = relationship("Account", back_populates="buyer", foreign_keys="Account.buyer_id")
     transactions = relationship("Transaction", back_populates="user")
+    withdrawals = relationship("WithdrawalRequest", back_populates="user")
+
+class WithdrawalRequest(Base):
+    __tablename__ = "withdrawal_requests"
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    user_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    amount = Column(Float, nullable=False)
+    method = Column(String(50), nullable=False)  # Telebirr or CBE
+    account_details = Column(String(255), nullable=False)
+    status = Column(Enum(WithdrawalStatus), default=WithdrawalStatus.PENDING, nullable=False)
+    rejection_reason = Column(String(500), nullable=True)
+
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    processed_at = Column(DateTime, nullable=True)
+
+    user = relationship("User", back_populates="withdrawals")
 
 class Account(Base):
     __tablename__ = "accounts"
