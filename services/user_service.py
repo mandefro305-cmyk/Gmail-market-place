@@ -31,7 +31,7 @@ class UserService:
             raise ValueError("Amount must be non-negative")
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
-            raise ValueError(f"User {user_id} not found")
+            user = UserService.get_or_create_user(session, user_id)
 
         if amount > 0:
             user.balance += amount
