@@ -7,6 +7,7 @@ from services.user_service import UserService
 
 REVIEW_SET_PRICES, REVIEW_REJECT_REASON = range(10, 12)
 ADMIN_REJECT_WD_REASON = 13
+ADMIN_ADD_ACC_INPUT, ADMIN_ADD_ACC_PRICE = range(14, 16)
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -33,76 +34,131 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"💳 **Pending Withdrawals:** {pending_wd_count}\n"
             f"🛒 **Available in Market:** {approved_count}\n"
             f"💰 **Total Sold:** {sold_count}\n\n"
-            "Commands:\n"
-            "• `/pending` - Review pending seller submissions\n"
-            "• `/withdrawals` - Review pending withdrawal requests\n"
-            "• `/addaccount <email>:<password>:<price_in_etb>` - Directly insert an account to marketplace\n"
-            "• `/addaccount <email>:<password>:<recovery>:<price_in_etb>`"
+            "Choose an action below or use commands:\n"
+            "• `/pending` - Review seller account submissions\n"
+            "• `/withdrawals` - Review cashout requests\n"
+            "• `/addaccount` - Add Gmail accounts to stock"
         )
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("➕ Add Accounts to Stock", callback_data="adm_btn_add_acc")],
+            [InlineKeyboardButton(f"⏳ Pending Accounts ({pending_count})", callback_data="adm_btn_pending_acc")],
+            [InlineKeyboardButton(f"💳 Pending Cashouts ({pending_wd_count})", callback_data="adm_btn_pending_wd")]
+        ])
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        else:
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
     finally:
         db.close()
 
-async def add_account_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not authorized to use admin features.")
-        return
+        msg = "❌ You are not authorized to use admin features."
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg)
+        else:
+            await update.message.reply_text(msg)
+        return ConversationHandler.END
 
-    args = context.args
-    if not args:
+    msg = (
+        "➕ **Add Gmail Accounts to Stock**\n\n"
+        "Please paste your Gmail accounts below.\n"
+        "You can send a single account or multiple accounts (one per line) in either format:\n"
+        "• `email:password`\n"
+        "• `email:password:recovery_email`\n\n"
+        "*(Type /cancel to abort)*"
+    )
+    if update.callback_query:
+        await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+    else:
+        await update.message.reply_text(msg, parse_mode="Markdown")
+
+    return ADMIN_ADD_ACC_INPUT
+
+async def process_add_account_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    lines = [line.strip() for line in text.split("\n") if line.strip()]
+
+    parsed_accounts = []
+    for line in lines:
+        parts = line.split(":")
+        if len(parts) >= 2:
+            email = parts[0].strip()
+            password = parts[1].strip()
+            recovery = parts[2].strip() if len(parts) > 2 else None
+            parsed_accounts.append((email, password, recovery))
+
+    if not parsed_accounts:
         await update.message.reply_text(
-            "Usage: `/addaccount <email>:<password>:<price_in_etb>` or `/addaccount <email>:<password>:<recovery>:<price_in_etb>`\n"
-            "Example: `/addaccount user@gmail.com:pass123:300`",
+            "❌ No valid account lines recognized. Format must be `email:password` or `email:password:recovery`.\nPlease try again:",
             parse_mode="Markdown"
         )
-        return
+        return ADMIN_ADD_ACC_INPUT
 
-    raw_input = " ".join(args).strip()
-    parts = raw_input.split(":")
-    if len(parts) not in (3, 4):
-        await update.message.reply_text("❌ Invalid format. Format must be `email:password:price` or `email:password:recovery:price`", parse_mode="Markdown")
-        return
+    context.user_data["add_acc_list"] = parsed_accounts
+    await update.message.reply_text(
+        f"✅ Received **{len(parsed_accounts)}** account(s).\n\n"
+        f"Please enter the **Selling Price in ETB** for these accounts (e.g. `350`):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_PRICE
 
-    if len(parts) == 3:
-        email, password, price_str = parts[0].strip(), parts[1].strip(), parts[2].strip()
-        recovery = None
-    else:
-        email, password, recovery, price_str = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+async def process_add_account_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text.replace('.', '', 1).isdigit():
+        await update.message.reply_text("❌ Invalid price. Please enter a number for the selling price in ETB (e.g., `350`):")
+        return ADMIN_ADD_ACC_PRICE
 
-    try:
-        selling_price = float(price_str)
-    except ValueError:
-        await update.message.reply_text("❌ Price must be a valid number.")
-        return
+    selling_price = float(text)
+    accounts = context.user_data.get("add_acc_list", [])
+    user_id = update.effective_user.id
 
     db = SessionLocal()
+    added_count = 0
     try:
-        account = AccountService.register_account(
-            session=db,
-            creator_id=user_id,
-            email=email,
-            password=password,
-            recovery_info=recovery,
-            notes="Directly added by Admin"
-        )
-        approved_acc = AccountService.approve_account(
-            session=db,
-            account_id=account.id,
-            selling_price=selling_price,
-            creator_payout=0.0
-        )
+        for email, password, recovery in accounts:
+            acc = AccountService.register_account(
+                session=db,
+                creator_id=user_id,
+                email=email,
+                password=password,
+                recovery_info=recovery,
+                notes="Directly added by Admin"
+            )
+            AccountService.approve_account(
+                session=db,
+                account_id=acc.id,
+                selling_price=selling_price,
+                creator_payout=0.0
+            )
+            added_count += 1
+
         await update.message.reply_text(
-            f"✅ **Account Added to Marketplace!**\n\n"
-            f"📧 **Email:** `{approved_acc.email}`\n"
-            f"💲 **Price:** {approved_acc.selling_price:.2f} ETB\n"
-            f"🆔 **ID:** `{approved_acc.id}`",
+            f"🎉 **Successfully added {added_count} account(s) to Marketplace stock!**\n"
+            f"💲 **Price per account:** {selling_price:.2f} ETB",
             parse_mode="Markdown"
         )
-    except ValueError as e:
-        await update.message.reply_text(f"❌ Error adding account: {str(e)}")
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error adding accounts: {str(e)}")
     finally:
         db.close()
+        context.user_data.clear()
+
+    return ConversationHandler.END
+
+admin_add_acc_conv_handler = ConversationHandler(
+    entry_points=[
+        CommandHandler("addaccount", start_add_account_conv),
+        CallbackQueryHandler(start_add_account_conv, pattern="^adm_btn_add_acc$")
+    ],
+    states={
+        ADMIN_ADD_ACC_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_input)],
+        ADMIN_ADD_ACC_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_price)]
+    },
+    fallbacks=[CommandHandler("cancel", cancel_review)],
+    per_message=False
+)
 
 async def list_pending_withdrawals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
