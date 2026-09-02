@@ -1,10 +1,12 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, CommandHandler, CallbackQueryHandler, ConversationHandler, MessageHandler, filters
 from config import ADMIN_IDS
-from models import SessionLocal, Account, AccountStatus
+from models import SessionLocal, Account, AccountStatus, WithdrawalRequest, WithdrawalStatus
 from services.account_service import AccountService
+from services.user_service import UserService
 
 REVIEW_SET_PRICES, REVIEW_REJECT_REASON = range(10, 12)
+ADMIN_REJECT_WD_REASON = 13
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -23,13 +25,17 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         approved_count = db.query(Account).filter(Account.status == AccountStatus.APPROVED).count()
         sold_count = db.query(Account).filter(Account.status == AccountStatus.SOLD).count()
 
+        pending_wd_count = db.query(WithdrawalRequest).filter(WithdrawalRequest.status == WithdrawalStatus.PENDING).count()
+
         msg = (
             "👑 **Admin Control Panel**\n\n"
             f"⏳ **Pending Accounts:** {pending_count}\n"
+            f"💳 **Pending Withdrawals:** {pending_wd_count}\n"
             f"🛒 **Available in Market:** {approved_count}\n"
             f"💰 **Total Sold:** {sold_count}\n\n"
             "Commands:\n"
             "• `/pending` - Review pending seller submissions\n"
+            "• `/withdrawals` - Review pending withdrawal requests\n"
             "• `/addaccount <email>:<password>:<price_in_etb>` - Directly insert an account to marketplace\n"
             "• `/addaccount <email>:<password>:<recovery>:<price_in_etb>`"
         )
@@ -97,6 +103,112 @@ async def add_account_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         await update.message.reply_text(f"❌ Error adding account: {str(e)}")
     finally:
         db.close()
+
+async def list_pending_withdrawals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ You are not authorized to use admin features.")
+        return
+
+    db = SessionLocal()
+    try:
+        pending_wds = UserService.get_pending_withdrawals(db)
+        if not pending_wds:
+            await update.message.reply_text("✅ No pending withdrawal requests!")
+            return
+
+        for wd in pending_wds:
+            keyboard = InlineKeyboardMarkup([
+                [
+                    InlineKeyboardButton("✅ Approve Cashout", callback_data=f"adm_wd_app_{wd.id}"),
+                    InlineKeyboardButton("❌ Reject & Refund", callback_data=f"adm_wd_rej_{wd.id}")
+                ]
+            ])
+            text = (
+                f"🆔 **Withdrawal ID:** `#{wd.id}`\n"
+                f"👤 **User ID:** `{wd.user_id}`\n"
+                f"💰 **Amount:** **{wd.amount:.2f} ETB**\n"
+                f"💳 **Method:** **{wd.method}**\n"
+                f"📝 **Account Details:** `{wd.account_details}`\n"
+            )
+            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+    finally:
+        db.close()
+
+async def withdrawal_review_callback_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    user_id = query.from_user.id
+    if not is_admin(user_id):
+        await query.edit_message_text("❌ Unauthorized.")
+        return ConversationHandler.END
+
+    data = query.data
+    if data.startswith("adm_wd_app_"):
+        wd_id = int(data.split("_")[3])
+        db = SessionLocal()
+        try:
+            req = UserService.approve_withdrawal(db, wd_id)
+            await query.edit_message_text(
+                f"✅ **Withdrawal #{req.id} APPROVED!**\n\n"
+                f"👤 User: `{req.user_id}`\n"
+                f"💰 Amount: {req.amount:.2f} ETB\n"
+                f"💳 Method: {req.method}\n"
+                f"📝 Details: `{req.account_details}`",
+                parse_mode="Markdown"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=req.user_id,
+                    text=f"🎉 **Withdrawal Approved!**\n\nYour cashout request of **{req.amount:.2f} ETB** via **{req.method}** has been processed and sent to `{req.account_details}`.",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+        except ValueError as e:
+            await query.edit_message_text(f"❌ Error approving withdrawal: {str(e)}")
+        finally:
+            db.close()
+        return ConversationHandler.END
+
+    elif data.startswith("adm_wd_rej_"):
+        wd_id = int(data.split("_")[3])
+        context.user_data["review_wd_id"] = wd_id
+        await query.edit_message_text(
+            f"❌ **Rejecting Withdrawal #{wd_id}**\n\nPlease enter the reason for rejection (the amount will be refunded to user balance):",
+            parse_mode="Markdown"
+        )
+        return ADMIN_REJECT_WD_REASON
+
+    return ConversationHandler.END
+
+async def process_withdrawal_rejection(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    reason = update.message.text.strip()
+    wd_id = context.user_data.get("review_wd_id")
+
+    db = SessionLocal()
+    try:
+        req = UserService.reject_withdrawal(db, wd_id, reason=reason)
+        await update.message.reply_text(
+            f"❌ Withdrawal #{req.id} REJECTED and **{req.amount:.2f} ETB** refunded to user balance.\nReason: {reason}",
+            parse_mode="Markdown"
+        )
+        try:
+            await context.bot.send_message(
+                chat_id=req.user_id,
+                text=f"❌ **Withdrawal Rejected**\n\nYour cashout request of **{req.amount:.2f} ETB** was rejected.\nReason: {reason}\n\n*The amount has been refunded back to your balance.*",
+                parse_mode="Markdown"
+            )
+        except Exception:
+            pass
+    except ValueError as e:
+        await update.message.reply_text(f"❌ Error rejecting withdrawal: {str(e)}")
+    finally:
+        db.close()
+        context.user_data.clear()
+
+    return ConversationHandler.END
 
 async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -245,8 +357,17 @@ async def cancel_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
     await update.message.reply_text("🚫 Review cancelled.")
     return ConversationHandler.END
 
+admin_wd_review_conv_handler = ConversationHandler(
+    entry_points=[CallbackQueryHandler(withdrawal_review_callback_handler, pattern="^adm_wd_")],
+    states={
+        ADMIN_REJECT_WD_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_withdrawal_rejection)]
+    },
+    fallbacks=[CommandHandler("cancel", cancel_review)],
+    per_message=False
+)
+
 admin_review_conv_handler = ConversationHandler(
-    entry_points=[CallbackQueryHandler(review_callback_handler, pattern="^adm_")],
+    entry_points=[CallbackQueryHandler(review_callback_handler, pattern="^adm_(approve|reject)_")],
     states={
         REVIEW_SET_PRICES: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_review_prices)],
         REVIEW_REJECT_REASON: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_review_rejection)]
