@@ -48,6 +48,22 @@ def test_account_service_lifecycle(db_session):
     assert approved.status == AccountStatus.APPROVED
     assert seller.balance == 2.0
 
+    # Test approving with zero payout
+    zero_acc = AccountService.register_account(
+        session=db_session,
+        creator_id=seller.id,
+        email="zero@gmail.com",
+        password="password123"
+    )
+    approved_zero = AccountService.approve_account(
+        session=db_session,
+        account_id=zero_acc.id,
+        selling_price=1.0,
+        creator_payout=0.0
+    )
+    assert approved_zero.status == AccountStatus.APPROVED
+    assert seller.balance == 2.0
+
     UserService.add_balance(db_session, user_id=buyer.id, amount=10.0, tx_type=TransactionType.DEPOSIT)
     purchased = AccountService.purchase_account(db_session, buyer_id=buyer.id, account_id=account.id)
     assert purchased.status == AccountStatus.SOLD

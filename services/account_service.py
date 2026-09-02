@@ -68,7 +68,8 @@ class AccountService:
             user_id=account.creator_id,
             amount=creator_payout,
             tx_type=TransactionType.PAYOUT,
-            description=f"Payout for approved Gmail account ({account.email})"
+            description=f"Payout for approved Gmail account ({account.email})",
+            commit=False
         )
 
         session.commit()
@@ -112,7 +113,8 @@ class AccountService:
             user_id=buyer_id,
             amount=account.selling_price,
             tx_type=TransactionType.PURCHASE,
-            description=f"Purchased Gmail account ({account.email})"
+            description=f"Purchased Gmail account ({account.email})",
+            commit=False
         )
 
         account.status = AccountStatus.SOLD

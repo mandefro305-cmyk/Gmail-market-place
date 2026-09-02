@@ -8,7 +8,7 @@ REVIEW_SET_PRICES, REVIEW_REJECT_REASON = range(10, 12)
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
-        return True
+        return False
     return user_id in ADMIN_IDS
 
 async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
