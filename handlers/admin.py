@@ -125,6 +125,11 @@ async def process_add_account_payout(update: Update, context: ContextTypes.DEFAU
     )
     return ADMIN_ADD_ACC_PRICE
 
+async def cancel_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    context.user_data.clear()
+    await update.message.reply_text("🚫 Review cancelled.")
+    return ConversationHandler.END
+
 async def process_add_account_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text.replace('.', '', 1).isdigit():
@@ -425,11 +430,6 @@ async def process_review_rejection(update: Update, context: ContextTypes.DEFAULT
         db.close()
         context.user_data.clear()
 
-    return ConversationHandler.END
-
-async def cancel_review(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    context.user_data.clear()
-    await update.message.reply_text("🚫 Review cancelled.")
     return ConversationHandler.END
 
 admin_wd_review_conv_handler = ConversationHandler(
