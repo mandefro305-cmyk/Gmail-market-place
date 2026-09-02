@@ -112,15 +112,16 @@ async def process_add_account_price(update: Update, context: ContextTypes.DEFAUL
 
     selling_price = float(text)
     accounts = context.user_data.get("add_acc_list", [])
-    user_id = update.effective_user.id
+    user = update.effective_user
 
     db = SessionLocal()
     added_count = 0
     try:
+        UserService.get_or_create_user(db, user.id, user.username, user.first_name)
         for email, password, recovery in accounts:
             acc = AccountService.register_account(
                 session=db,
-                creator_id=user_id,
+                creator_id=user.id,
                 email=email,
                 password=password,
                 recovery_info=recovery,

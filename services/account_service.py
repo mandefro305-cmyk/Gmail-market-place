@@ -25,6 +25,8 @@ class AccountService:
         if existing:
             raise ValueError("This Gmail account has already been registered.")
 
+        UserService.get_or_create_user(session, creator_id)
+
         account = Account(
             creator_id=creator_id,
             email=email,
