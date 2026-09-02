@@ -68,10 +68,14 @@ async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_T
 
     msg = (
         "➕ **Add New Email / Creation Tasks**\n\n"
-        "Please paste your email task templates below.\n"
-        "You can send a single account or multiple accounts (one per line) in either format:\n"
-        "• `email:password`\n"
-        "• `email:password:recovery_email`\n\n"
+        "Send your task templates (one or multiple lines) in any of these formats:\n\n"
+        "⚡ **Instant Full Format (Includes Payout & Selling Price):**\n"
+        "• `email:password:recovery:payout:price` or\n"
+        "• `email | password | recovery | payout | price`\n"
+        "• `email:password:payout:price` or `email | password | payout | price`\n\n"
+        "📝 **Template Format (You will be prompted for Payout & Price next):**\n"
+        "• `email:password:recovery` or `email | password | recovery`\n"
+        "• `email:password` or `email | password`\n\n"
         "*(Type /cancel to abort)*"
     )
     if update.callback_query:
@@ -86,38 +90,38 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
     lines = [line.strip() for line in text.split("\n") if line.strip()]
 
     parsed_accounts = []
-    pipe_accounts = []
+    direct_accounts = []
 
     for line in lines:
-        if "|" in line:
-            parts = [p.strip() for p in line.split("|")]
-            if len(parts) == 5:
-                try:
+        delim = "|" if "|" in line else ":"
+        parts = [p.strip() for p in line.split(delim)]
+
+        if len(parts) >= 4:
+            try:
+                if len(parts) >= 5:
                     payout = float(parts[3])
                     price = float(parts[4])
-                    pipe_accounts.append((parts[0], parts[1], parts[2], payout, price))
+                    direct_accounts.append((parts[0], parts[1], parts[2], payout, price))
                     continue
-                except ValueError:
-                    pass
-            elif len(parts) >= 2:
-                email = parts[0]
-                password = parts[1]
-                recovery = parts[2] if len(parts) > 2 else None
-                parsed_accounts.append((email, password, recovery))
-                continue
+                else:
+                    payout = float(parts[2])
+                    price = float(parts[3])
+                    direct_accounts.append((parts[0], parts[1], None, payout, price))
+                    continue
+            except ValueError:
+                pass
 
-        parts = [p.strip() for p in line.split(":")]
         if len(parts) >= 2:
             email = parts[0]
             password = parts[1]
-            recovery = parts[2] if len(parts) > 2 else None
+            recovery = parts[2] if len(parts) >= 3 and not parts[2].replace('.', '', 1).isdigit() else None
             parsed_accounts.append((email, password, recovery))
 
-    if pipe_accounts and not parsed_accounts:
+    if direct_accounts and not parsed_accounts:
         db = SessionLocal()
         added_count = 0
         try:
-            for email, password, recovery, creator_payout, selling_price in pipe_accounts:
+            for email, password, recovery, creator_payout, selling_price in direct_accounts:
                 AccountService.create_email_task(
                     session=db,
                     email=email,
@@ -130,7 +134,8 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
                 added_count += 1
 
             await update.message.reply_text(
-                f"🎉 **Successfully created {added_count} email creation task(s)!**",
+                f"🎉 **Successfully created {added_count} email creation task(s)!**\n\n"
+                f"Normal users can now claim and create these emails in their bot menu!",
                 parse_mode="Markdown"
             )
         except Exception as e:
@@ -141,9 +146,9 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
 
         return ConversationHandler.END
 
-    if not parsed_accounts:
+    if not parsed_accounts and not direct_accounts:
         await update.message.reply_text(
-            "❌ No valid email task lines recognized. Please use `email | password | recovery | payout | price` or `email:password`.\nPlease try again:",
+            "❌ No valid email task lines recognized. Please use `email:password:recovery:payout:price` or `email:password:recovery`.\nPlease try again:",
             parse_mode="Markdown"
         )
         return ADMIN_ADD_ACC_INPUT
