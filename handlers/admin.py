@@ -17,7 +17,7 @@ def is_admin(user_id: int) -> bool:
 async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not authorized to use admin features.")
+        await update.effective_message.reply_text("❌ You are not authorized to use admin features.")
         return
 
     db = SessionLocal()
@@ -47,7 +47,7 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
         if update.callback_query:
             await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
         else:
-            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+            await update.effective_message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
     finally:
         db.close()
 
@@ -185,16 +185,19 @@ admin_add_acc_conv_handler = ConversationHandler(
 )
 
 async def list_pending_withdrawals_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not authorized to use admin features.")
+        await update.effective_message.reply_text("❌ You are not authorized to use admin features.")
         return
 
     db = SessionLocal()
     try:
         pending_wds = UserService.get_pending_withdrawals(db)
         if not pending_wds:
-            await update.message.reply_text("✅ No pending withdrawal requests!")
+            await update.effective_message.reply_text("✅ No pending withdrawal requests!")
             return
 
         for wd in pending_wds:
@@ -211,7 +214,7 @@ async def list_pending_withdrawals_command(update: Update, context: ContextTypes
                 f"💳 **Method:** **{wd.method}**\n"
                 f"📝 **Account Details:** `{wd.account_details}`\n"
             )
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+            await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
     finally:
         db.close()
 
@@ -291,16 +294,19 @@ async def process_withdrawal_rejection(update: Update, context: ContextTypes.DEF
     return ConversationHandler.END
 
 async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+
     user_id = update.effective_user.id
     if not is_admin(user_id):
-        await update.message.reply_text("❌ You are not authorized to use admin features.")
+        await update.effective_message.reply_text("❌ You are not authorized to use admin features.")
         return
 
     db = SessionLocal()
     try:
         pending = AccountService.get_pending_accounts(db)
         if not pending:
-            await update.message.reply_text("✅ No pending Gmail accounts to review!")
+            await update.effective_message.reply_text("✅ No pending Gmail accounts to review!")
             return
 
         for acc in pending:
@@ -318,7 +324,7 @@ async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"📝 **Notes:** `{acc.notes or 'None'}`\n"
                 f"👤 **Creator ID:** `{acc.creator_id}`\n"
             )
-            await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
+            await update.effective_message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
     finally:
         db.close()
 
