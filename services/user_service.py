@@ -25,22 +25,25 @@ class UserService:
         return user
 
     @staticmethod
-    def add_balance(session: Session, user_id: int, amount: float, tx_type: TransactionType, description: str = None) -> User:
-        if amount <= 0:
-            raise ValueError("Amount must be greater than zero")
+    def add_balance(session: Session, user_id: int, amount: float, tx_type: TransactionType, description: str = None, commit: bool = True) -> User:
+        if amount < 0:
+            raise ValueError("Amount must be non-negative")
         user = session.query(User).filter(User.id == user_id).first()
         if not user:
             raise ValueError(f"User {user_id} not found")
 
-        user.balance += amount
-        tx = Transaction(user_id=user_id, amount=amount, type=tx_type, description=description)
-        session.add(tx)
-        session.commit()
-        session.refresh(user)
+        if amount > 0:
+            user.balance += amount
+            tx = Transaction(user_id=user_id, amount=amount, type=tx_type, description=description)
+            session.add(tx)
+
+        if commit:
+            session.commit()
+            session.refresh(user)
         return user
 
     @staticmethod
-    def deduct_balance(session: Session, user_id: int, amount: float, tx_type: TransactionType, description: str = None) -> User:
+    def deduct_balance(session: Session, user_id: int, amount: float, tx_type: TransactionType, description: str = None, commit: bool = True) -> User:
         if amount <= 0:
             raise ValueError("Amount must be greater than zero")
         user = session.query(User).filter(User.id == user_id).first()
@@ -52,6 +55,7 @@ class UserService:
         user.balance -= amount
         tx = Transaction(user_id=user_id, amount=-amount, type=tx_type, description=description)
         session.add(tx)
-        session.commit()
-        session.refresh(user)
+        if commit:
+            session.commit()
+            session.refresh(user)
         return user
