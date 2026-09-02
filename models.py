@@ -7,6 +7,7 @@ from config import DATABASE_URL
 Base = declarative_base()
 
 class AccountStatus(str, PyEnum):
+    TASK_AVAILABLE = "TASK_AVAILABLE"
     PENDING_REVIEW = "PENDING_REVIEW"
     APPROVED = "APPROVED"
     REJECTED = "REJECTED"
@@ -68,7 +69,7 @@ class Account(Base):
     creator_payout = Column(Float, nullable=True)
     rejection_reason = Column(String(500), nullable=True)
 
-    creator_id = Column(Integer, ForeignKey("users.id"), nullable=False)
+    creator_id = Column(Integer, ForeignKey("users.id"), nullable=True)
     buyer_id = Column(Integer, ForeignKey("users.id"), nullable=True)
 
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

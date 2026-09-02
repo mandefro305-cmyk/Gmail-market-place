@@ -41,6 +41,62 @@ class AccountService:
         return account
 
     @staticmethod
+    def create_email_task(
+        session: Session,
+        email: str,
+        password: str,
+        recovery_info: Optional[str] = None,
+        creator_payout: float = 0.0,
+        selling_price: float = 0.0,
+        notes: Optional[str] = None
+    ) -> Account:
+        email = email.strip().lower()
+        if "@" not in email:
+            raise ValueError("Invalid email format")
+
+        existing = session.query(Account).filter(
+            Account.email == email,
+            Account.status.in_([AccountStatus.TASK_AVAILABLE, AccountStatus.PENDING_REVIEW, AccountStatus.APPROVED, AccountStatus.SOLD])
+        ).first()
+        if existing:
+            raise ValueError("This Gmail account/task has already been added.")
+
+        account = Account(
+            creator_id=None,
+            email=email,
+            password=password.strip(),
+            recovery_info=recovery_info.strip() if recovery_info else None,
+            creator_payout=creator_payout,
+            selling_price=selling_price,
+            notes=notes.strip() if notes else None,
+            status=AccountStatus.TASK_AVAILABLE
+        )
+        session.add(account)
+        session.commit()
+        session.refresh(account)
+        return account
+
+    @staticmethod
+    def get_available_tasks(session: Session) -> List[Account]:
+        return session.query(Account).filter(Account.status == AccountStatus.TASK_AVAILABLE).order_by(Account.created_at.asc()).all()
+
+    @staticmethod
+    def submit_task_completion(session: Session, account_id: int, creator_id: int) -> Account:
+        account = session.query(Account).filter(Account.id == account_id).first()
+        if not account:
+            raise ValueError("Task not found")
+        if account.status != AccountStatus.TASK_AVAILABLE:
+            raise ValueError("This task is no longer available.")
+
+        UserService.get_or_create_user(session, creator_id)
+
+        account.creator_id = creator_id
+        account.status = AccountStatus.PENDING_REVIEW
+        session.commit()
+        session.refresh(account)
+        return account
+
+    @staticmethod
     def get_pending_accounts(session: Session) -> List[Account]:
         return session.query(Account).filter(Account.status == AccountStatus.PENDING_REVIEW).order_by(Account.created_at.asc()).all()
 

@@ -10,8 +10,8 @@ WITHDRAW_SELECT_METHOD, WITHDRAW_ENTER_AMOUNT, WITHDRAW_ENTER_DETAILS = range(20
 async def start_register_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE):
     db = SessionLocal()
     try:
-        total_accounts = db.query(Account).count()
-        if total_accounts == 0:
+        available_tasks = AccountService.get_available_tasks(db)
+        if not available_tasks:
             msg = "❌ **No task available!**\n\nThere are currently no tasks available. The admin has not added any emails yet. Please check back later!"
             if update.callback_query:
                 await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
@@ -19,53 +19,88 @@ async def start_register_gmail(update: Update, context: ContextTypes.DEFAULT_TYP
                 await update.message.reply_text(msg, parse_mode="Markdown")
             return ConversationHandler.END
 
+        task = available_tasks[0]
+        context.user_data["active_task_id"] = task.id
+
         msg = (
-            "➕ **Submit Gmail Account Details**\n\n"
-            "Please send the account details in format:\n"
-            "`email:password:recovery_email` or `email:password`\n\n"
-            "*(Type /cancel to abort)*"
+            f"➕ **Gmail Creation Task Available**\n\n"
+            f"Please register a new Gmail account on Google using these exact details:\n\n"
+            f"📧 **Email:** `{task.email}`\n"
+            f"🔑 **Password:** `{task.password}`\n"
+            f"📩 **Recovery Email:** `{task.recovery_info or 'None'}`\n"
+            f"💵 **Payout Upon Approval:** **{task.creator_payout:.2f} ETB**\n\n"
+            f"Once you have created the account, click the button below to confirm submission for review!\n"
+            f"*(Or type /cancel to abort)*"
         )
 
+        keyboard = InlineKeyboardMarkup([
+            [InlineKeyboardButton("✅ Confirm Account Created & Submit", callback_data=f"usr_submit_task_{task.id}")],
+            [InlineKeyboardButton("🚫 Cancel Task", callback_data="usr_cancel_task")]
+        ])
+
         if update.callback_query:
-            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
         elif update.message:
-            await update.message.reply_text(msg, parse_mode="Markdown")
+            await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
 
         return REGISTER_MANUAL_INPUT
     finally:
         db.close()
 
+async def process_task_submission_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer()
+
+    data = query.data
+    if data == "usr_cancel_task":
+        await query.edit_message_text("🚫 Task creation cancelled.")
+        context.user_data.clear()
+        return ConversationHandler.END
+
+    if data.startswith("usr_submit_task_"):
+        task_id = int(data.split("_")[3])
+        user = query.from_user
+
+        db = SessionLocal()
+        try:
+            account = AccountService.submit_task_completion(session=db, account_id=task_id, creator_id=user.id)
+            await query.edit_message_text(
+                f"✅ **Account Submitted for Review!**\n\n"
+                f"📧 **Email:** `{account.email}`\n"
+                f"💵 **Expected Payout:** {account.creator_payout:.2f} ETB\n"
+                f"🆔 **Task ID:** `#{account.id}`\n\n"
+                f"Status: ⏳ *Pending Admin Verification*",
+                parse_mode="Markdown"
+            )
+        except ValueError as e:
+            await query.edit_message_text(f"❌ Submission failed: {str(e)}")
+        finally:
+            db.close()
+            context.user_data.clear()
+
+    return ConversationHandler.END
+
 async def process_manual_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    parts = text.split(":")
-    if len(parts) < 2:
-        await update.message.reply_text("❌ Invalid format. Please send as `email:password` or `email:password:recovery`:", parse_mode="Markdown")
-        return REGISTER_MANUAL_INPUT
-
-    email = parts[0].strip()
-    password = parts[1].strip()
-    recovery = parts[2].strip() if len(parts) > 2 else None
-
     user = update.effective_user
+    task_id = context.user_data.get("active_task_id")
+
+    if not task_id:
+        await update.message.reply_text("❌ No active task selected. Please select '➕ Register a new Gmail' from the menu.")
+        return ConversationHandler.END
+
     db = SessionLocal()
     try:
-        UserService.get_or_create_user(db, user.id, user.username, user.first_name)
-        account = AccountService.register_account(
-            session=db,
-            creator_id=user.id,
-            email=email,
-            password=password,
-            recovery_info=recovery
-        )
+        account = AccountService.submit_task_completion(session=db, account_id=task_id, creator_id=user.id)
         await update.message.reply_text(
-            f"✅ **Account Registered!**\n\n"
+            f"✅ **Account Submitted for Review!**\n\n"
             f"📧 **Email:** `{account.email}`\n"
-            f"🆔 **Registration ID:** `{account.id}`\n\n"
-            f"Status: ⏳ *Pending Review*",
+            f"💵 **Expected Payout:** {account.creator_payout:.2f} ETB\n"
+            f"🆔 **Task ID:** `#{account.id}`\n\n"
+            f"Status: ⏳ *Pending Admin Verification*",
             parse_mode="Markdown"
         )
     except ValueError as e:
-        await update.message.reply_text(f"❌ Registration failed: {str(e)}")
+        await update.message.reply_text(f"❌ Submission failed: {str(e)}")
     finally:
         db.close()
         context.user_data.clear()
@@ -269,7 +304,10 @@ register_conv_handler = ConversationHandler(
         MessageHandler(filters.Regex("^➕ Register a new Gmail$"), start_register_gmail)
     ],
     states={
-        REGISTER_MANUAL_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_manual_input)]
+        REGISTER_MANUAL_INPUT: [
+            CallbackQueryHandler(process_task_submission_callback, pattern="^usr_(submit|cancel)_task"),
+            MessageHandler(filters.TEXT & ~filters.COMMAND, process_manual_input)
+        ]
     },
     fallbacks=[CommandHandler("cancel", cancel_register)],
     per_message=False

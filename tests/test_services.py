@@ -27,6 +27,35 @@ def test_user_service_balance(db_session):
     UserService.deduct_balance(db_session, user_id=123, amount=4.0, tx_type=TransactionType.WITHDRAWAL)
     assert user.balance == 6.0
 
+def test_admin_task_creation_and_user_submission(db_session):
+    # Admin creates task template
+    task = AccountService.create_email_task(
+        session=db_session,
+        email="admintask@gmail.com",
+        password="pass123task",
+        recovery_info="rec@gmail.com",
+        creator_payout=80.0,
+        selling_price=250.0
+    )
+    assert task.status == AccountStatus.TASK_AVAILABLE
+    assert task.creator_id is None
+
+    # Normal user claims & submits task
+    user = UserService.get_or_create_user(db_session, user_id=50, username="worker", first_name="Worker")
+    submitted = AccountService.submit_task_completion(session=db_session, account_id=task.id, creator_id=user.id)
+    assert submitted.status == AccountStatus.PENDING_REVIEW
+    assert submitted.creator_id == 50
+
+    # Admin approves submission and user earns creator_payout
+    approved = AccountService.approve_account(
+        session=db_session,
+        account_id=submitted.id,
+        selling_price=submitted.selling_price,
+        creator_payout=submitted.creator_payout
+    )
+    assert approved.status == AccountStatus.APPROVED
+    assert user.balance == 80.0
+
 def test_account_service_lifecycle(db_session):
     seller = UserService.get_or_create_user(db_session, user_id=1, username="seller", first_name="Seller")
     buyer = UserService.get_or_create_user(db_session, user_id=2, username="buyer", first_name="Buyer")
