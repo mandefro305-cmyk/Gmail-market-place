@@ -1,6 +1,6 @@
 from telegram import Update, InlineKeyboardButton, InlineKeyboardMarkup
 from telegram.ext import ContextTypes, ConversationHandler, CommandHandler, MessageHandler, CallbackQueryHandler, filters
-from models import SessionLocal, AccountStatus, TransactionType
+from models import SessionLocal, Account, AccountStatus, TransactionType
 from services.user_service import UserService
 from services.account_service import AccountService
 
@@ -8,19 +8,32 @@ REGISTER_MANUAL_INPUT = 1
 WITHDRAW_SELECT_METHOD, WITHDRAW_ENTER_AMOUNT, WITHDRAW_ENTER_DETAILS = range(20, 23)
 
 async def start_register_gmail(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    msg = (
-        "➕ **Submit Gmail Account Details**\n\n"
-        "Please send the account details in format:\n"
-        "`email:password:recovery_email` or `email:password`\n\n"
-        "*(Type /cancel to abort)*"
-    )
+    db = SessionLocal()
+    try:
+        total_accounts = db.query(Account).count()
+        if total_accounts == 0:
+            msg = "❌ **No task available!**\n\nThere are currently no tasks available. The admin has not added any emails yet. Please check back later!"
+            if update.callback_query:
+                await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+            elif update.message:
+                await update.message.reply_text(msg, parse_mode="Markdown")
+            return ConversationHandler.END
 
-    if update.callback_query:
-        await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
-    elif update.message:
-        await update.message.reply_text(msg, parse_mode="Markdown")
+        msg = (
+            "➕ **Submit Gmail Account Details**\n\n"
+            "Please send the account details in format:\n"
+            "`email:password:recovery_email` or `email:password`\n\n"
+            "*(Type /cancel to abort)*"
+        )
 
-    return REGISTER_MANUAL_INPUT
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+        elif update.message:
+            await update.message.reply_text(msg, parse_mode="Markdown")
+
+        return REGISTER_MANUAL_INPUT
+    finally:
+        db.close()
 
 async def process_manual_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
