@@ -86,17 +86,64 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
     lines = [line.strip() for line in text.split("\n") if line.strip()]
 
     parsed_accounts = []
+    pipe_accounts = []
+
     for line in lines:
-        parts = line.split(":")
+        if "|" in line:
+            parts = [p.strip() for p in line.split("|")]
+            if len(parts) == 5:
+                try:
+                    payout = float(parts[3])
+                    price = float(parts[4])
+                    pipe_accounts.append((parts[0], parts[1], parts[2], payout, price))
+                    continue
+                except ValueError:
+                    pass
+            elif len(parts) >= 2:
+                email = parts[0]
+                password = parts[1]
+                recovery = parts[2] if len(parts) > 2 else None
+                parsed_accounts.append((email, password, recovery))
+                continue
+
+        parts = [p.strip() for p in line.split(":")]
         if len(parts) >= 2:
-            email = parts[0].strip()
-            password = parts[1].strip()
-            recovery = parts[2].strip() if len(parts) > 2 else None
+            email = parts[0]
+            password = parts[1]
+            recovery = parts[2] if len(parts) > 2 else None
             parsed_accounts.append((email, password, recovery))
+
+    if pipe_accounts and not parsed_accounts:
+        db = SessionLocal()
+        added_count = 0
+        try:
+            for email, password, recovery, creator_payout, selling_price in pipe_accounts:
+                AccountService.create_email_task(
+                    session=db,
+                    email=email,
+                    password=password,
+                    recovery_info=recovery,
+                    creator_payout=creator_payout,
+                    selling_price=selling_price,
+                    notes="Admin created task"
+                )
+                added_count += 1
+
+            await update.message.reply_text(
+                f"🎉 **Successfully created {added_count} email creation task(s)!**",
+                parse_mode="Markdown"
+            )
+        except Exception as e:
+            await update.message.reply_text(f"❌ Error adding tasks: {str(e)}")
+        finally:
+            db.close()
+            context.user_data.clear()
+
+        return ConversationHandler.END
 
     if not parsed_accounts:
         await update.message.reply_text(
-            "❌ No valid email task lines recognized. Format must be `email:password` or `email:password:recovery`.\nPlease try again:",
+            "❌ No valid email task lines recognized. Please use `email | password | recovery | payout | price` or `email:password`.\nPlease try again:",
             parse_mode="Markdown"
         )
         return ADMIN_ADD_ACC_INPUT
