@@ -34,9 +34,9 @@ async def start_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
 
     welcome_text = (
         f"👋 Welcome to **Gmail Farmer Bot**, {user.first_name}!\n\n"
-        "🌾 **Earn money by registering and providing Gmail accounts!**\n\n"
-        "• Click **➕ Register a new Gmail** to get account creation details and tasks.\n"
-        "• Check **📋 My accounts** to see your registered accounts & earnings.\n"
+        "🌾 **Earn money by providing Gmail accounts!**\n\n"
+        "• Click **➕ Register a new Gmail** to submit Gmail accounts.\n"
+        "• Check **📋 My accounts** to see your submitted accounts & earnings.\n"
         "• Check **💰 Balance** to withdraw your funds.\n"
         "• Invite friends with **👥 My referrals** to earn bonuses!"
     )
@@ -46,10 +46,10 @@ async def help_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     help_text = (
         "💬 **Gmail Farmer Help & FAQ**\n\n"
         "**How does it work?**\n"
-        "1. Click **➕ Register a new Gmail** to generate account registration parameters.\n"
-        "2. Create the Gmail account using those credentials.\n"
-        "3. Confirm completion to send it for verification.\n"
-        "4. Once checked, earnings are added to your balance!\n\n"
+        "1. Click **➕ Register a new Gmail** to submit your Gmail account details.\n"
+        "2. Send the details in `email:password` or `email:password:recovery` format.\n"
+        "3. Our admin team checks and approves the account, setting the payout.\n"
+        "4. Once approved, earnings in ETB are credited to your balance!\n\n"
         "**Support & Contact:**\n"
         "For any issues, contact `@GmailFarmerSupport`."
     )

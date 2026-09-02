@@ -22,10 +22,10 @@ async def marketplace_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
             text = (
                 f"📧 **Stock:** `{masked_email}`\n"
-                f"💲 **Price:** **${acc.selling_price:.2f}**\n"
+                f"💲 **Price:** **{acc.selling_price:.2f} ETB**\n"
             )
             keyboard = InlineKeyboardMarkup([
-                [InlineKeyboardButton(f"🛒 Buy Account for ${acc.selling_price:.2f}", callback_data=f"buy_acc_{acc.id}")]
+                [InlineKeyboardButton(f"🛒 Buy Account for {acc.selling_price:.2f} ETB", callback_data=f"buy_acc_{acc.id}")]
             ])
             await update.message.reply_text(text, parse_mode="Markdown", reply_markup=keyboard)
     finally:
@@ -36,7 +36,7 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
     args = context.args
 
     if not args or not args[0].replace('.', '', 1).isdigit():
-        await update.message.reply_text("Usage: `/deposit <amount>`\nExample: `/deposit 10.00`", parse_mode="Markdown")
+        await update.message.reply_text("Usage: `/deposit <amount>`\nExample: `/deposit 500`", parse_mode="Markdown")
         return
 
     amount = float(args[0])
@@ -51,7 +51,7 @@ async def deposit_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
             description="Balance deposit"
         )
         await update.message.reply_text(
-            f"💳 **Deposit Completed!**\n\nAdded **${amount:.2f}** to your balance.\nCurrent Balance: **${updated_user.balance:.2f}**",
+            f"💳 **Deposit Completed!**\n\nAdded **{amount:.2f} ETB** to your balance.\nCurrent Balance: **{updated_user.balance:.2f} ETB**",
             parse_mode="Markdown"
         )
     except ValueError as e:

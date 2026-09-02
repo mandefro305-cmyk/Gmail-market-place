@@ -28,9 +28,73 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             f"⏳ **Pending Accounts:** {pending_count}\n"
             f"🛒 **Available in Market:** {approved_count}\n"
             f"💰 **Total Sold:** {sold_count}\n\n"
-            "Use /pending to review pending Gmail accounts."
+            "Commands:\n"
+            "• `/pending` - Review pending seller submissions\n"
+            "• `/addaccount <email>:<password>:<price_in_etb>` - Directly insert an account to marketplace\n"
+            "• `/addaccount <email>:<password>:<recovery>:<price_in_etb>`"
         )
         await update.message.reply_text(msg, parse_mode="Markdown")
+    finally:
+        db.close()
+
+async def add_account_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    user_id = update.effective_user.id
+    if not is_admin(user_id):
+        await update.message.reply_text("❌ You are not authorized to use admin features.")
+        return
+
+    args = context.args
+    if not args:
+        await update.message.reply_text(
+            "Usage: `/addaccount <email>:<password>:<price_in_etb>` or `/addaccount <email>:<password>:<recovery>:<price_in_etb>`\n"
+            "Example: `/addaccount user@gmail.com:pass123:300`",
+            parse_mode="Markdown"
+        )
+        return
+
+    raw_input = " ".join(args).strip()
+    parts = raw_input.split(":")
+    if len(parts) not in (3, 4):
+        await update.message.reply_text("❌ Invalid format. Format must be `email:password:price` or `email:password:recovery:price`", parse_mode="Markdown")
+        return
+
+    if len(parts) == 3:
+        email, password, price_str = parts[0].strip(), parts[1].strip(), parts[2].strip()
+        recovery = None
+    else:
+        email, password, recovery, price_str = parts[0].strip(), parts[1].strip(), parts[2].strip(), parts[3].strip()
+
+    try:
+        selling_price = float(price_str)
+    except ValueError:
+        await update.message.reply_text("❌ Price must be a valid number.")
+        return
+
+    db = SessionLocal()
+    try:
+        account = AccountService.register_account(
+            session=db,
+            creator_id=user_id,
+            email=email,
+            password=password,
+            recovery_info=recovery,
+            notes="Directly added by Admin"
+        )
+        approved_acc = AccountService.approve_account(
+            session=db,
+            account_id=account.id,
+            selling_price=selling_price,
+            creator_payout=0.0
+        )
+        await update.message.reply_text(
+            f"✅ **Account Added to Marketplace!**\n\n"
+            f"📧 **Email:** `{approved_acc.email}`\n"
+            f"💲 **Price:** {approved_acc.selling_price:.2f} ETB\n"
+            f"🆔 **ID:** `{approved_acc.id}`",
+            parse_mode="Markdown"
+        )
+    except ValueError as e:
+        await update.message.reply_text(f"❌ Error adding account: {str(e)}")
     finally:
         db.close()
 
@@ -81,8 +145,8 @@ async def review_callback_handler(update: Update, context: ContextTypes.DEFAULT_
         context.user_data["review_acc_id"] = account_id
         await query.edit_message_text(
             f"✅ **Approving Account #{account_id}**\n\n"
-            f"Please enter selling price and creator payout separated by space.\n"
-            f"Example: `10.0 0.20` (Sell price $10.00, Creator payout $0.20):",
+            f"Please enter selling price and creator payout in ETB separated by space.\n"
+            f"Example: `500 100` (Sell price 500 ETB, Creator payout 100 ETB):",
             parse_mode="Markdown"
         )
         return REVIEW_SET_PRICES
@@ -105,14 +169,14 @@ async def process_review_prices(update: Update, context: ContextTypes.DEFAULT_TY
 
     parts = text.split()
     if len(parts) != 2:
-        await update.message.reply_text("❌ Invalid input format. Please enter selling price and creator payout (e.g., `10.0 0.20`):", parse_mode="Markdown")
+        await update.message.reply_text("❌ Invalid input format. Please enter selling price and creator payout in ETB (e.g., `500 100`):", parse_mode="Markdown")
         return REVIEW_SET_PRICES
 
     try:
         selling_price = float(parts[0])
         creator_payout = float(parts[1])
     except ValueError:
-        await update.message.reply_text("❌ Invalid numbers. Please enter numbers like `10.0 0.20`:")
+        await update.message.reply_text("❌ Invalid numbers. Please enter numbers like `500 100`:")
         return REVIEW_SET_PRICES
 
     db = SessionLocal()
@@ -125,15 +189,15 @@ async def process_review_prices(update: Update, context: ContextTypes.DEFAULT_TY
         )
         await update.message.reply_text(
             f"🎉 Account #{account.id} (`{account.email}`) APPROVED!\n"
-            f"• Selling Price: ${selling_price:.2f}\n"
-            f"• Creator Payout: ${creator_payout:.2f} (Credited to creator balance)",
+            f"• Selling Price: {selling_price:.2f} ETB\n"
+            f"• Creator Payout: {creator_payout:.2f} ETB (Credited to creator balance)",
             parse_mode="Markdown"
         )
 
         try:
             await context.bot.send_message(
                 chat_id=account.creator_id,
-                text=f"🎉 **Account Approved!**\n\nYour submitted account `{account.email}` was approved! **${creator_payout:.2f}** credited to your balance.",
+                text=f"🎉 **Account Approved!**\n\nYour submitted account `{account.email}` was approved! **{creator_payout:.2f} ETB** credited to your balance.",
                 parse_mode="Markdown"
             )
         except Exception:

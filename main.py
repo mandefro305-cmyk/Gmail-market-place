@@ -7,7 +7,7 @@ from config import BOT_TOKEN
 from models import init_db
 from handlers.start import start_command, help_command, referrals_command, settings_command
 from handlers.seller import register_conv_handler, my_accounts_command, balance_command, withdraw_command
-from handlers.admin import admin_panel_command, list_pending_command, admin_review_conv_handler
+from handlers.admin import admin_panel_command, list_pending_command, add_account_command, admin_review_conv_handler
 from handlers.buyer import marketplace_command, deposit_command, buy_callback_handler
 
 logging.basicConfig(
@@ -59,6 +59,7 @@ def create_application() -> Application:
 
     app.add_handler(CommandHandler("admin", admin_panel_command))
     app.add_handler(CommandHandler("pending", list_pending_command))
+    app.add_handler(CommandHandler("addaccount", add_account_command))
     app.add_handler(admin_review_conv_handler)
 
     app.add_handler(CommandHandler("marketplace", marketplace_command))
