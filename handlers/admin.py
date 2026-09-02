@@ -7,7 +7,7 @@ from services.user_service import UserService
 
 REVIEW_SET_PRICES, REVIEW_REJECT_REASON = range(10, 12)
 ADMIN_REJECT_WD_REASON = 13
-ADMIN_ADD_ACC_INPUT, ADMIN_ADD_ACC_PRICE = range(14, 16)
+ADMIN_ADD_ACC_INPUT, ADMIN_ADD_ACC_PAYOUT, ADMIN_ADD_ACC_PRICE = range(14, 17)
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -22,6 +22,7 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     db = SessionLocal()
     try:
+        tasks_count = db.query(Account).filter(Account.status == AccountStatus.TASK_AVAILABLE).count()
         pending_count = db.query(Account).filter(Account.status == AccountStatus.PENDING_REVIEW).count()
         approved_count = db.query(Account).filter(Account.status == AccountStatus.APPROVED).count()
         sold_count = db.query(Account).filter(Account.status == AccountStatus.SOLD).count()
@@ -30,19 +31,18 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
 
         msg = (
             "👑 **Admin Control Panel**\n\n"
-            f"⏳ **Pending Accounts:** {pending_count}\n"
-            f"💳 **Pending Withdrawals:** {pending_wd_count}\n"
-            f"🛒 **Available in Market:** {approved_count}\n"
-            f"💰 **Total Sold:** {sold_count}\n\n"
-            "Choose an action below or use commands:\n"
-            "• `/pending` - Review seller account submissions\n"
-            "• `/withdrawals` - Review cashout requests\n"
-            "• `/addaccount` - Add Gmail accounts to stock"
+            f"📋 **Available Creation Tasks:** {tasks_count}\n"
+            f"⏳ **Pending Review Submissions:** {pending_count}\n"
+            f"💳 **Pending Cashouts:** {pending_wd_count}\n"
+            f"🛒 **Marketplace Inventory:** {approved_count}\n"
+            f"💰 **Total Sold Accounts:** {sold_count}\n\n"
+            "Select an action using the buttons below:"
         )
         keyboard = InlineKeyboardMarkup([
-            [InlineKeyboardButton("➕ Add Accounts to Stock", callback_data="adm_btn_add_acc")],
-            [InlineKeyboardButton(f"⏳ Pending Accounts ({pending_count})", callback_data="adm_btn_pending_acc")],
-            [InlineKeyboardButton(f"💳 Pending Cashouts ({pending_wd_count})", callback_data="adm_btn_pending_wd")]
+            [InlineKeyboardButton("➕ Add Gmail Tasks / Emails", callback_data="adm_btn_add_acc")],
+            [InlineKeyboardButton(f"⏳ Review Submissions ({pending_count})", callback_data="adm_btn_pending_acc")],
+            [InlineKeyboardButton(f"💳 Review Cashouts ({pending_wd_count})", callback_data="adm_btn_pending_wd")],
+            [InlineKeyboardButton("📊 Refresh Stats", callback_data="adm_btn_refresh_stats")]
         ])
         if update.callback_query:
             await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
@@ -50,6 +50,11 @@ async def admin_panel_command(update: Update, context: ContextTypes.DEFAULT_TYPE
             await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
     finally:
         db.close()
+
+async def admin_refresh_callback(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    query = update.callback_query
+    await query.answer("Refreshed stats!")
+    await admin_panel_command(update, context)
 
 async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_TYPE):
     user_id = update.effective_user.id
@@ -62,8 +67,8 @@ async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_T
         return ConversationHandler.END
 
     msg = (
-        "➕ **Add Gmail Accounts to Stock**\n\n"
-        "Please paste your Gmail accounts below.\n"
+        "➕ **Add New Email / Creation Tasks**\n\n"
+        "Please paste your email task templates below.\n"
         "You can send a single account or multiple accounts (one per line) in either format:\n"
         "• `email:password`\n"
         "• `email:password:recovery_email`\n\n"
@@ -91,15 +96,31 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
 
     if not parsed_accounts:
         await update.message.reply_text(
-            "❌ No valid account lines recognized. Format must be `email:password` or `email:password:recovery`.\nPlease try again:",
+            "❌ No valid email task lines recognized. Format must be `email:password` or `email:password:recovery`.\nPlease try again:",
             parse_mode="Markdown"
         )
         return ADMIN_ADD_ACC_INPUT
 
     context.user_data["add_acc_list"] = parsed_accounts
     await update.message.reply_text(
-        f"✅ Received **{len(parsed_accounts)}** account(s).\n\n"
-        f"Please enter the **Selling Price in ETB** for these accounts (e.g. `350`):",
+        f"✅ Received **{len(parsed_accounts)}** email task template(s).\n\n"
+        f"Please enter the **Creator Payout in ETB** that regular users will earn upon task verification (e.g. `80`):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_PAYOUT
+
+async def process_add_account_payout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text.replace('.', '', 1).isdigit():
+        await update.message.reply_text("❌ Invalid payout amount. Please enter a valid number for creator payout in ETB (e.g., `80`):")
+        return ADMIN_ADD_ACC_PAYOUT
+
+    payout = float(text)
+    context.user_data["add_acc_payout"] = payout
+
+    await update.message.reply_text(
+        f"💰 Creator Payout set to **{payout:.2f} ETB**.\n\n"
+        f"Please enter the **Marketplace Selling Price in ETB** when sold to buyers (e.g. `250`):",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_PRICE
@@ -107,41 +128,37 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
 async def process_add_account_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     if not text.replace('.', '', 1).isdigit():
-        await update.message.reply_text("❌ Invalid price. Please enter a number for the selling price in ETB (e.g., `350`):")
+        await update.message.reply_text("❌ Invalid selling price. Please enter a valid number for selling price in ETB (e.g., `250`):")
         return ADMIN_ADD_ACC_PRICE
 
     selling_price = float(text)
     accounts = context.user_data.get("add_acc_list", [])
-    user = update.effective_user
+    creator_payout = context.user_data.get("add_acc_payout", 0.0)
 
     db = SessionLocal()
     added_count = 0
     try:
-        UserService.get_or_create_user(db, user.id, user.username, user.first_name)
         for email, password, recovery in accounts:
-            acc = AccountService.register_account(
+            AccountService.create_email_task(
                 session=db,
-                creator_id=user.id,
                 email=email,
                 password=password,
                 recovery_info=recovery,
-                notes="Directly added by Admin"
-            )
-            AccountService.approve_account(
-                session=db,
-                account_id=acc.id,
+                creator_payout=creator_payout,
                 selling_price=selling_price,
-                creator_payout=0.0
+                notes="Admin created task"
             )
             added_count += 1
 
         await update.message.reply_text(
-            f"🎉 **Successfully added {added_count} account(s) to Marketplace stock!**\n"
-            f"💲 **Price per account:** {selling_price:.2f} ETB",
+            f"🎉 **Successfully created {added_count} email creation task(s)!**\n\n"
+            f"💵 **User Payout:** {creator_payout:.2f} ETB\n"
+            f"💲 **Store Price:** {selling_price:.2f} ETB\n\n"
+            f"Normal users can now claim and create these emails in their bot menu!",
             parse_mode="Markdown"
         )
     except Exception as e:
-        await update.message.reply_text(f"❌ Error adding accounts: {str(e)}")
+        await update.message.reply_text(f"❌ Error adding tasks: {str(e)}")
     finally:
         db.close()
         context.user_data.clear()
@@ -155,6 +172,7 @@ admin_add_acc_conv_handler = ConversationHandler(
     ],
     states={
         ADMIN_ADD_ACC_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_input)],
+        ADMIN_ADD_ACC_PAYOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_payout)],
         ADMIN_ADD_ACC_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_price)]
     },
     fallbacks=[CommandHandler("cancel", cancel_review)],
