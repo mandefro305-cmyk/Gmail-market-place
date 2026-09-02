@@ -1,4 +1,7 @@
 import logging
+import os
+import threading
+from http.server import HTTPServer, BaseHTTPRequestHandler
 from telegram.ext import Application, CommandHandler, CallbackQueryHandler, MessageHandler, filters
 from config import BOT_TOKEN
 from models import init_db
@@ -11,6 +14,28 @@ logging.basicConfig(
     format="%(asctime)s - %(name)s - %(levelname)s - %(message)s", level=logging.INFO
 )
 logger = logging.getLogger(__name__)
+
+class HealthCheckHandler(BaseHTTPRequestHandler):
+    def do_GET(self):
+        self.send_response(200)
+        self.send_header("Content-type", "text/plain")
+        self.end_headers()
+        self.wfile.write(b"OK")
+
+    def log_message(self, format, *args):
+        pass
+
+def start_health_check_server():
+    port_str = os.environ.get("PORT")
+    if port_str:
+        try:
+            port = int(port_str)
+            server = HTTPServer(("0.0.0.0", port), HealthCheckHandler)
+            thread = threading.Thread(target=server.serve_forever, daemon=True)
+            thread.start()
+            logger.info(f"Started health check HTTP server on port {port}")
+        except Exception as e:
+            logger.error(f"Failed to start health check server: {e}")
 
 def create_application() -> Application:
     init_db()
@@ -46,6 +71,7 @@ def main():
     if BOT_TOKEN == "YOUR_TELEGRAM_BOT_TOKEN":
         logger.warning("BOT_TOKEN is not set. Please set BOT_TOKEN in environment variables or config.py.")
 
+    start_health_check_server()
     app = create_application()
     logger.info("Starting Telegram Gmail Marketplace / Farmer Bot...")
     app.run_polling()
