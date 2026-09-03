@@ -7,7 +7,20 @@ from services.user_service import UserService
 
 REVIEW_SET_PRICES, REVIEW_REJECT_REASON = range(10, 12)
 ADMIN_REJECT_WD_REASON = 13
-ADMIN_ADD_ACC_INPUT, ADMIN_ADD_ACC_PAYOUT, ADMIN_ADD_ACC_PRICE = range(14, 17)
+(
+    ADMIN_ADD_ACC_MODE,
+    ADMIN_ADD_ACC_FN,
+    ADMIN_ADD_ACC_LN,
+    ADMIN_ADD_ACC_EMAIL,
+    ADMIN_ADD_ACC_PASS,
+    ADMIN_ADD_ACC_REC,
+    ADMIN_ADD_ACC_DOB,
+    ADMIN_ADD_ACC_PAYOUT_STEP,
+    ADMIN_ADD_ACC_PRICE_STEP,
+    ADMIN_ADD_ACC_INPUT,
+    ADMIN_ADD_ACC_PAYOUT,
+    ADMIN_ADD_ACC_PRICE
+) = range(14, 26)
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -68,13 +81,9 @@ async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_T
 
     msg = (
         "➕ **Add New Email / Creation Tasks**\n\n"
-        "Send your task templates (one or multiple lines) in any format:\n\n"
-        "⚡ **Full Format (With Payout & Price):**\n"
-        "• `email:password:recovery:payout:price` or `email:password:recovery:payout:price:firstname:lastname:dob_year`\n"
-        "• Pipe-separated (`|`) format is also supported.\n\n"
-        "📝 **Standard Format (Prompt for Payout & Price next):**\n"
-        "• `email:password:recovery` or `firstname:lastname:email:password:dob_year:recovery`\n"
-        "• `email:password`\n\n"
+        "How would you like to add the email task?\n\n"
+        "1️⃣ Send **`1`** for **Step-by-Step Guided Mode** (Easy prompt wizard)\n"
+        "2️⃣ Or paste **Bulk / Formatted Text** directly (e.g. `email:password:recovery` or `email:password:recovery:payout:price`)\n\n"
         "*(Type /cancel to abort)*"
     )
     if update.callback_query:
@@ -82,7 +91,145 @@ async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_T
     else:
         await update.message.reply_text(msg, parse_mode="Markdown")
 
-    return ADMIN_ADD_ACC_INPUT
+    return ADMIN_ADD_ACC_MODE
+
+async def process_add_account_mode(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if text == "1":
+        await update.message.reply_text(
+            "📝 **Step 1/8: First Name**\n\nPlease enter the **First Name** for the email (or send `/skip` if not needed):",
+            parse_mode="Markdown"
+        )
+        return ADMIN_ADD_ACC_FN
+
+    # If not "1", check if it's bulk formatted input
+    return await process_add_account_input(update, context)
+
+async def process_step_fn(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["step_fn"] = None if text == "/skip" else text
+    await update.message.reply_text(
+        "📝 **Step 2/8: Last Name**\n\nPlease enter the **Last Name** for the email (or send `/skip` to show ✖️):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_LN
+
+async def process_step_ln(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["step_ln"] = None if text == "/skip" else text
+    await update.message.reply_text(
+        "📧 **Step 3/8: Email Address**\n\nPlease enter the **Gmail Address**:",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_EMAIL
+
+async def process_step_email(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    email = update.message.text.strip().lower()
+    if "@" not in email:
+        await update.message.reply_text("❌ Invalid email format. Please enter a valid Gmail address (e.g. `example@gmail.com`):")
+        return ADMIN_ADD_ACC_EMAIL
+
+    context.user_data["step_email"] = email
+    await update.message.reply_text(
+        "🔑 **Step 4/8: Password**\n\nPlease enter the **Password** for the account:",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_PASS
+
+async def process_step_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    password = update.message.text.strip()
+    context.user_data["step_pass"] = password
+    await update.message.reply_text(
+        "📩 **Step 5/8: Recovery Email**\n\nPlease enter the **Recovery Email** (or send `/skip` if none):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_REC
+
+async def process_step_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["step_rec"] = None if text == "/skip" else text
+    await update.message.reply_text(
+        "🎂 **Step 6/8: Year of Birth**\n\nPlease enter the **Birth Year** (e.g. `1998` or send `/skip`):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_DOB
+
+async def process_step_dob(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    context.user_data["step_dob"] = None if text == "/skip" else text
+    await update.message.reply_text(
+        "💵 **Step 7/8: Creator Payout in ETB**\n\nPlease enter the payout amount in ETB that regular users will earn upon completing this task (e.g. `80`):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_PAYOUT_STEP
+
+async def process_step_payout(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text.replace('.', '', 1).isdigit():
+        await update.message.reply_text("❌ Invalid amount. Please enter a valid number for creator payout in ETB (e.g. `80`):")
+        return ADMIN_ADD_ACC_PAYOUT_STEP
+
+    context.user_data["step_payout"] = float(text)
+    await update.message.reply_text(
+        "💲 **Step 8/8: Store Selling Price in ETB**\n\nPlease enter the marketplace price in ETB when sold to buyers (e.g. `250`):",
+        parse_mode="Markdown"
+    )
+    return ADMIN_ADD_ACC_PRICE_STEP
+
+async def process_step_price(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    text = update.message.text.strip()
+    if not text.replace('.', '', 1).isdigit():
+        await update.message.reply_text("❌ Invalid price. Please enter a valid number for selling price in ETB (e.g. `250`):")
+        return ADMIN_ADD_ACC_PRICE_STEP
+
+    price = float(text)
+    fn = context.user_data.get("step_fn")
+    ln = context.user_data.get("step_ln")
+    email = context.user_data.get("step_email")
+    password = context.user_data.get("step_pass")
+    recovery = context.user_data.get("step_rec")
+    dob = context.user_data.get("step_dob")
+    payout = context.user_data.get("step_payout", 0.0)
+
+    db = SessionLocal()
+    try:
+        task = AccountService.create_email_task(
+            session=db,
+            email=email,
+            password=password,
+            recovery_info=recovery,
+            creator_payout=payout,
+            selling_price=price,
+            notes="Admin created task",
+            first_name=fn,
+            last_name=ln,
+            dob_year=dob
+        )
+
+        fn_str = f"`{task.first_name}`" if task.first_name else "N/A"
+        ln_str = f"`{task.last_name}`" if task.last_name else "✖️"
+        dob_str = f"`{task.dob_year}`" if task.dob_year else "N/A"
+
+        await update.message.reply_text(
+            f"🎉 **Gmail Creation Task Successfully Added!**\n\n"
+            f"👤 **First Name:** {fn_str}\n"
+            f"👤 **Last Name:** {ln_str}\n"
+            f"📧 **Email:** `{task.email}`\n"
+            f"🔑 **Password:** `{task.password}`\n"
+            f"📩 **Recovery:** `{task.recovery_info or 'N/A'}`\n"
+            f"🎂 **Year of Birth:** {dob_str}\n"
+            f"💵 **User Payout:** {task.creator_payout:.2f} ETB\n"
+            f"💲 **Store Price:** {task.selling_price:.2f} ETB\n\n"
+            f"Users can now claim and register this email task from the menu!",
+            parse_mode="Markdown"
+        )
+    except Exception as e:
+        await update.message.reply_text(f"❌ Error adding task: {str(e)}")
+    finally:
+        db.close()
+        context.user_data.clear()
+
+    return ConversationHandler.END
 
 async def process_add_account_input(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
@@ -258,6 +405,15 @@ admin_add_acc_conv_handler = ConversationHandler(
         CallbackQueryHandler(start_add_account_conv, pattern="^adm_btn_add_acc$")
     ],
     states={
+        ADMIN_ADD_ACC_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_mode)],
+        ADMIN_ADD_ACC_FN: [MessageHandler(filters.TEXT, process_step_fn)],
+        ADMIN_ADD_ACC_LN: [MessageHandler(filters.TEXT, process_step_ln)],
+        ADMIN_ADD_ACC_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_email)],
+        ADMIN_ADD_ACC_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_pass)],
+        ADMIN_ADD_ACC_REC: [MessageHandler(filters.TEXT, process_step_rec)],
+        ADMIN_ADD_ACC_DOB: [MessageHandler(filters.TEXT, process_step_dob)],
+        ADMIN_ADD_ACC_PAYOUT_STEP: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_payout)],
+        ADMIN_ADD_ACC_PRICE_STEP: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_price)],
         ADMIN_ADD_ACC_INPUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_input)],
         ADMIN_ADD_ACC_PAYOUT: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_payout)],
         ADMIN_ADD_ACC_PRICE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_price)]
