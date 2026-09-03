@@ -10,7 +10,6 @@ ADMIN_REJECT_WD_REASON = 13
 (
     ADMIN_ADD_ACC_MODE,
     ADMIN_ADD_ACC_FN,
-    ADMIN_ADD_ACC_LN,
     ADMIN_ADD_ACC_EMAIL,
     ADMIN_ADD_ACC_PASS,
     ADMIN_ADD_ACC_REC,
@@ -20,7 +19,7 @@ ADMIN_REJECT_WD_REASON = 13
     ADMIN_ADD_ACC_INPUT,
     ADMIN_ADD_ACC_PAYOUT,
     ADMIN_ADD_ACC_PRICE
-) = range(14, 26)
+) = range(14, 25)
 
 def is_admin(user_id: int) -> bool:
     if not ADMIN_IDS:
@@ -97,7 +96,7 @@ async def process_add_account_mode(update: Update, context: ContextTypes.DEFAULT
     text = update.message.text.strip()
     if text == "1":
         await update.message.reply_text(
-            "📝 **Step 1/8: First Name**\n\nPlease enter the **First Name** for the email (or send `/skip` if not needed):",
+            "📝 **Step 1/7: First Name**\n\nPlease enter the **First Name** for the email (or send `/skip` if not needed):",
             parse_mode="Markdown"
         )
         return ADMIN_ADD_ACC_FN
@@ -108,17 +107,9 @@ async def process_add_account_mode(update: Update, context: ContextTypes.DEFAULT
 async def process_step_fn(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     context.user_data["step_fn"] = None if text == "/skip" else text
+    context.user_data["step_ln"] = None
     await update.message.reply_text(
-        "📝 **Step 2/8: Last Name**\n\nPlease enter the **Last Name** for the email (or send `/skip` to show ✖️):",
-        parse_mode="Markdown"
-    )
-    return ADMIN_ADD_ACC_LN
-
-async def process_step_ln(update: Update, context: ContextTypes.DEFAULT_TYPE):
-    text = update.message.text.strip()
-    context.user_data["step_ln"] = None if text == "/skip" else text
-    await update.message.reply_text(
-        "📧 **Step 3/8: Email Address**\n\nPlease enter the **Gmail Address**:",
+        "📧 **Step 2/7: Email Address**\n\nPlease enter the **Gmail Address**:",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_EMAIL
@@ -131,7 +122,7 @@ async def process_step_email(update: Update, context: ContextTypes.DEFAULT_TYPE)
 
     context.user_data["step_email"] = email
     await update.message.reply_text(
-        "🔑 **Step 4/8: Password**\n\nPlease enter the **Password** for the account:",
+        "🔑 **Step 3/7: Password**\n\nPlease enter the **Password** for the account:",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_PASS
@@ -140,7 +131,7 @@ async def process_step_pass(update: Update, context: ContextTypes.DEFAULT_TYPE):
     password = update.message.text.strip()
     context.user_data["step_pass"] = password
     await update.message.reply_text(
-        "📩 **Step 5/8: Recovery Email**\n\nPlease enter the **Recovery Email** (or send `/skip` if none):",
+        "📩 **Step 4/7: Recovery Email**\n\nPlease enter the **Recovery Email** (or send `/skip` if none):",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_REC
@@ -149,7 +140,7 @@ async def process_step_rec(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     context.user_data["step_rec"] = None if text == "/skip" else text
     await update.message.reply_text(
-        "🎂 **Step 6/8: Year of Birth**\n\nPlease enter the **Birth Year** (e.g. `1998` or send `/skip`):",
+        "🎂 **Step 5/7: Year of Birth**\n\nPlease enter the **Birth Year** (e.g. `1998` or send `/skip`):",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_DOB
@@ -158,7 +149,7 @@ async def process_step_dob(update: Update, context: ContextTypes.DEFAULT_TYPE):
     text = update.message.text.strip()
     context.user_data["step_dob"] = None if text == "/skip" else text
     await update.message.reply_text(
-        "💵 **Step 7/8: Creator Payout in ETB**\n\nPlease enter the payout amount in ETB that regular users will earn upon completing this task (e.g. `80`):",
+        "💵 **Step 6/7: Creator Payout in ETB**\n\nPlease enter the payout amount in ETB that regular users will earn upon completing this task (e.g. `80`):",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_PAYOUT_STEP
@@ -171,7 +162,7 @@ async def process_step_payout(update: Update, context: ContextTypes.DEFAULT_TYPE
 
     context.user_data["step_payout"] = float(text)
     await update.message.reply_text(
-        "💲 **Step 8/8: Store Selling Price in ETB**\n\nPlease enter the marketplace price in ETB when sold to buyers (e.g. `250`):",
+        "💲 **Step 7/7: Store Selling Price in ETB**\n\nPlease enter the marketplace price in ETB when sold to buyers (e.g. `250`):",
         parse_mode="Markdown"
     )
     return ADMIN_ADD_ACC_PRICE_STEP
@@ -207,13 +198,11 @@ async def process_step_price(update: Update, context: ContextTypes.DEFAULT_TYPE)
         )
 
         fn_str = f"`{task.first_name}`" if task.first_name else "N/A"
-        ln_str = f"`{task.last_name}`" if task.last_name else "✖️"
         dob_str = f"`{task.dob_year}`" if task.dob_year else "N/A"
 
         await update.message.reply_text(
             f"🎉 **Gmail Creation Task Successfully Added!**\n\n"
             f"👤 **First Name:** {fn_str}\n"
-            f"👤 **Last Name:** {ln_str}\n"
             f"📧 **Email:** `{task.email}`\n"
             f"🔑 **Password:** `{task.password}`\n"
             f"📩 **Recovery:** `{task.recovery_info or 'N/A'}`\n"
@@ -407,7 +396,6 @@ admin_add_acc_conv_handler = ConversationHandler(
     states={
         ADMIN_ADD_ACC_MODE: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_add_account_mode)],
         ADMIN_ADD_ACC_FN: [MessageHandler(filters.TEXT, process_step_fn)],
-        ADMIN_ADD_ACC_LN: [MessageHandler(filters.TEXT, process_step_ln)],
         ADMIN_ADD_ACC_EMAIL: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_email)],
         ADMIN_ADD_ACC_PASS: [MessageHandler(filters.TEXT & ~filters.COMMAND, process_step_pass)],
         ADMIN_ADD_ACC_REC: [MessageHandler(filters.TEXT, process_step_rec)],
@@ -557,13 +545,11 @@ async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 ]
             ])
             fn_str = f"`{acc.first_name}`" if acc.first_name else "N/A"
-            ln_str = f"`{acc.last_name}`" if acc.last_name else "✖️"
             dob_str = f"`{acc.dob_year}`" if acc.dob_year else "N/A"
 
             text = (
                 f"🆔 **Account ID:** `{acc.id}`\n"
                 f"👤 **First Name:** {fn_str}\n"
-                f"👤 **Last Name:** {ln_str}\n"
                 f"📧 **Email:** `{acc.email}`\n"
                 f"🔑 **Password:** `{acc.password}`\n"
                 f"📩 **Recovery:** `{acc.recovery_info or 'N/A'}`\n"
