@@ -59,6 +59,9 @@ class Account(Base):
     __tablename__ = "accounts"
 
     id = Column(Integer, primary_key=True, autoincrement=True)
+    first_name = Column(String(255), nullable=True)
+    last_name = Column(String(255), nullable=True)
+    dob_year = Column(String(50), nullable=True)
     email = Column(String(255), nullable=False)
     password = Column(String(255), nullable=False)
     recovery_info = Column(String(500), nullable=True)

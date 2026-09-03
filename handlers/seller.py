@@ -22,12 +22,19 @@ async def start_register_gmail(update: Update, context: ContextTypes.DEFAULT_TYP
         task = available_tasks[0]
         context.user_data["active_task_id"] = task.id
 
+        fn_display = f"`{task.first_name}`" if task.first_name else ""
+        ln_display = f"`{task.last_name}`" if task.last_name else "✖️"
+        dob_display = f"`{task.dob_year}`" if task.dob_year else ""
+
         msg = (
             f"➕ **Gmail Creation Task Available**\n\n"
             f"Please register a new Gmail account on Google using these exact details:\n\n"
-            f"📧 **Email:** `{task.email}`\n"
-            f"🔑 **Password:** `{task.password}`\n"
-            f"📩 **Recovery Email:** `{task.recovery_info or 'None'}`\n"
+            f"First name: {fn_display}\n"
+            f"Last name: {ln_display}\n"
+            f"Email: `{task.email}`\n"
+            f"Password: `{task.password}`\n"
+            f"Recovery email: `{task.recovery_info or 'None'}`\n"
+            f"Year of birth: {dob_display}\n\n"
             f"💵 **Payout Upon Approval:** **{task.creator_payout:.2f} ETB**\n\n"
             f"Once you have created the account, click the button below to confirm submission for review!\n"
             f"*(Or type /cancel to abort)*"

@@ -68,14 +68,13 @@ async def start_add_account_conv(update: Update, context: ContextTypes.DEFAULT_T
 
     msg = (
         "➕ **Add New Email / Creation Tasks**\n\n"
-        "Send your task templates (one or multiple lines) in any of these formats:\n\n"
-        "⚡ **Instant Full Format (Includes Payout & Selling Price):**\n"
-        "• `email:password:recovery:payout:price` or\n"
-        "• `email | password | recovery | payout | price`\n"
-        "• `email:password:payout:price` or `email | password | payout | price`\n\n"
-        "📝 **Template Format (You will be prompted for Payout & Price next):**\n"
-        "• `email:password:recovery` or `email | password | recovery`\n"
-        "• `email:password` or `email | password`\n\n"
+        "Send your task templates (one or multiple lines) in any format:\n\n"
+        "⚡ **Full Format (With Payout & Price):**\n"
+        "• `email:password:recovery:payout:price` or `email:password:recovery:payout:price:firstname:lastname:dob_year`\n"
+        "• Pipe-separated (`|`) format is also supported.\n\n"
+        "📝 **Standard Format (Prompt for Payout & Price next):**\n"
+        "• `email:password:recovery` or `firstname:lastname:email:password:dob_year:recovery`\n"
+        "• `email:password`\n\n"
         "*(Type /cancel to abort)*"
     )
     if update.callback_query:
@@ -96,32 +95,57 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
         delim = "|" if "|" in line else ":"
         parts = [p.strip() for p in line.split(delim)]
 
+        # Check for direct format: email:password:recovery:payout:price or with extra fields
         if len(parts) >= 4:
             try:
-                if len(parts) >= 5:
+                # e.g., email:password:recovery:payout:price[:first_name:last_name:dob_year]
+                if len(parts) >= 5 and parts[3].replace('.', '', 1).isdigit() and parts[4].replace('.', '', 1).isdigit():
                     payout = float(parts[3])
                     price = float(parts[4])
-                    direct_accounts.append((parts[0], parts[1], parts[2], payout, price))
+                    fn = parts[5] if len(parts) >= 6 else None
+                    ln = parts[6] if len(parts) >= 7 else None
+                    dob = parts[7] if len(parts) >= 8 else None
+                    direct_accounts.append((parts[0], parts[1], parts[2], payout, price, fn, ln, dob))
                     continue
-                else:
+                # e.g., email:password:payout:price
+                elif len(parts) == 4 and parts[2].replace('.', '', 1).isdigit() and parts[3].replace('.', '', 1).isdigit():
                     payout = float(parts[2])
                     price = float(parts[3])
-                    direct_accounts.append((parts[0], parts[1], None, payout, price))
+                    direct_accounts.append((parts[0], parts[1], None, payout, price, None, None, None))
                     continue
             except ValueError:
                 pass
 
+        # Standard task input format handling
         if len(parts) >= 2:
-            email = parts[0]
-            password = parts[1]
-            recovery = parts[2] if len(parts) >= 3 and not parts[2].replace('.', '', 1).isdigit() else None
-            parsed_accounts.append((email, password, recovery))
+            # Check if line has email in index 0 or index 2 (e.g. first:last:email:pass:dob:rec)
+            if "@" in parts[0]:
+                email = parts[0]
+                password = parts[1]
+                recovery = parts[2] if len(parts) >= 3 else None
+                fn = parts[3] if len(parts) >= 4 else None
+                ln = parts[4] if len(parts) >= 5 else None
+                dob = parts[5] if len(parts) >= 6 else None
+            elif len(parts) >= 4 and "@" in parts[2]:
+                fn = parts[0]
+                ln = parts[1]
+                email = parts[2]
+                password = parts[3]
+                dob = parts[4] if len(parts) >= 5 else None
+                recovery = parts[5] if len(parts) >= 6 else None
+            else:
+                email = parts[0]
+                password = parts[1]
+                recovery = parts[2] if len(parts) >= 3 else None
+                fn, ln, dob = None, None, None
+
+            parsed_accounts.append((email, password, recovery, fn, ln, dob))
 
     if direct_accounts and not parsed_accounts:
         db = SessionLocal()
         added_count = 0
         try:
-            for email, password, recovery, creator_payout, selling_price in direct_accounts:
+            for email, password, recovery, creator_payout, selling_price, fn, ln, dob in direct_accounts:
                 AccountService.create_email_task(
                     session=db,
                     email=email,
@@ -129,7 +153,10 @@ async def process_add_account_input(update: Update, context: ContextTypes.DEFAUL
                     recovery_info=recovery,
                     creator_payout=creator_payout,
                     selling_price=selling_price,
-                    notes="Admin created task"
+                    notes="Admin created task",
+                    first_name=fn,
+                    last_name=ln,
+                    dob_year=dob
                 )
                 added_count += 1
 
@@ -195,7 +222,7 @@ async def process_add_account_price(update: Update, context: ContextTypes.DEFAUL
     db = SessionLocal()
     added_count = 0
     try:
-        for email, password, recovery in accounts:
+        for email, password, recovery, fn, ln, dob in accounts:
             AccountService.create_email_task(
                 session=db,
                 email=email,
@@ -203,7 +230,10 @@ async def process_add_account_price(update: Update, context: ContextTypes.DEFAUL
                 recovery_info=recovery,
                 creator_payout=creator_payout,
                 selling_price=selling_price,
-                notes="Admin created task"
+                notes="Admin created task",
+                first_name=fn,
+                last_name=ln,
+                dob_year=dob
             )
             added_count += 1
 
@@ -370,11 +400,18 @@ async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYP
                     InlineKeyboardButton("❌ Reject", callback_data=f"adm_reject_{acc.id}")
                 ]
             ])
+            fn_str = f"`{acc.first_name}`" if acc.first_name else "N/A"
+            ln_str = f"`{acc.last_name}`" if acc.last_name else "✖️"
+            dob_str = f"`{acc.dob_year}`" if acc.dob_year else "N/A"
+
             text = (
                 f"🆔 **Account ID:** `{acc.id}`\n"
+                f"👤 **First Name:** {fn_str}\n"
+                f"👤 **Last Name:** {ln_str}\n"
                 f"📧 **Email:** `{acc.email}`\n"
                 f"🔑 **Password:** `{acc.password}`\n"
                 f"📩 **Recovery:** `{acc.recovery_info or 'N/A'}`\n"
+                f"🎂 **Year of Birth:** {dob_str}\n"
                 f"💰 **Payout:** `{payout_val:.2f} ETB`\n"
                 f"💲 **Sell Price:** `{price_val:.2f} ETB`\n"
                 f"📝 **Notes:** `{acc.notes or 'None'}`\n"
