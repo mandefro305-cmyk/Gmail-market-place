@@ -12,7 +12,10 @@ class AccountService:
         email: str,
         password: str,
         recovery_info: Optional[str] = None,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        dob_year: Optional[str] = None
     ) -> Account:
         email = email.strip().lower()
         if "@" not in email:
@@ -29,6 +32,9 @@ class AccountService:
 
         account = Account(
             creator_id=creator_id,
+            first_name=first_name.strip() if first_name else None,
+            last_name=last_name.strip() if last_name else None,
+            dob_year=dob_year.strip() if dob_year else None,
             email=email,
             password=password.strip(),
             recovery_info=recovery_info.strip() if recovery_info else None,
@@ -48,7 +54,10 @@ class AccountService:
         recovery_info: Optional[str] = None,
         creator_payout: float = 0.0,
         selling_price: float = 0.0,
-        notes: Optional[str] = None
+        notes: Optional[str] = None,
+        first_name: Optional[str] = None,
+        last_name: Optional[str] = None,
+        dob_year: Optional[str] = None
     ) -> Account:
         email = email.strip().lower()
         if "@" not in email:
@@ -63,6 +72,9 @@ class AccountService:
 
         account = Account(
             creator_id=None,
+            first_name=first_name.strip() if first_name else None,
+            last_name=last_name.strip() if last_name else None,
+            dob_year=dob_year.strip() if dob_year else None,
             email=email,
             password=password.strip(),
             recovery_info=recovery_info.strip() if recovery_info else None,

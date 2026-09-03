@@ -28,17 +28,23 @@ def test_user_service_balance(db_session):
     assert user.balance == 6.0
 
 def test_admin_task_creation_and_user_submission(db_session):
-    # Admin creates task template
+    # Admin creates task template with first name, last name, and year of birth
     task = AccountService.create_email_task(
         session=db_session,
         email="admintask@gmail.com",
         password="pass123task",
         recovery_info="rec@gmail.com",
         creator_payout=80.0,
-        selling_price=250.0
+        selling_price=250.0,
+        first_name="John",
+        last_name="Doe",
+        dob_year="1995"
     )
     assert task.status == AccountStatus.TASK_AVAILABLE
     assert task.creator_id is None
+    assert task.first_name == "John"
+    assert task.last_name == "Doe"
+    assert task.dob_year == "1995"
 
     # Normal user claims & submits task
     user = UserService.get_or_create_user(db_session, user_id=50, username="worker", first_name="Worker")
