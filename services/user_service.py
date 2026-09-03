@@ -74,6 +74,10 @@ class UserService:
         return session.query(WithdrawalRequest).filter(WithdrawalRequest.status == WithdrawalStatus.PENDING).order_by(WithdrawalRequest.created_at.asc()).all()
 
     @staticmethod
+    def get_user_withdrawals(session: Session, user_id: int):
+        return session.query(WithdrawalRequest).filter(WithdrawalRequest.user_id == user_id).order_by(WithdrawalRequest.created_at.desc()).all()
+
+    @staticmethod
     def approve_withdrawal(session: Session, withdrawal_id: int) -> WithdrawalRequest:
         req = session.query(WithdrawalRequest).filter(WithdrawalRequest.id == withdrawal_id).first()
         if not req:

@@ -132,3 +132,9 @@ def test_withdrawal_request_lifecycle(db_session):
     rej_req = UserService.reject_withdrawal(db_session, req2.id, reason="Invalid details")
     assert rej_req.status == WithdrawalStatus.REJECTED
     assert user.balance == 300.0
+
+    # Test user withdrawal history
+    history = UserService.get_user_withdrawals(db_session, 100)
+    assert len(history) == 2
+    assert history[0].id == req2.id
+    assert history[1].id == req1.id

@@ -6,7 +6,7 @@ from telegram.ext import Application, CommandHandler, CallbackQueryHandler, Mess
 from config import BOT_TOKEN
 from models import init_db
 from handlers.start import start_command, help_command, referrals_command, settings_command
-from handlers.seller import register_conv_handler, withdraw_conv_handler, my_accounts_command, balance_command
+from handlers.seller import register_conv_handler, withdraw_conv_handler, my_accounts_command, balance_command, payout_history_command
 from handlers.admin import (
     admin_panel_command, list_pending_command, list_pending_withdrawals_command, admin_refresh_callback,
     admin_review_conv_handler, admin_wd_review_conv_handler, admin_add_acc_conv_handler
@@ -59,6 +59,8 @@ def create_application() -> Application:
     app.add_handler(MessageHandler(filters.Regex("^📋 My accounts$"), my_accounts_command))
     app.add_handler(CommandHandler("balance", balance_command))
     app.add_handler(MessageHandler(filters.Regex("^💰 Balance$"), balance_command))
+    app.add_handler(CommandHandler("payouts", payout_history_command))
+    app.add_handler(CallbackQueryHandler(payout_history_command, pattern="^wallet_payouts$"))
 
     app.add_handler(CommandHandler("admin", admin_panel_command))
     app.add_handler(CallbackQueryHandler(admin_refresh_callback, pattern="^adm_btn_refresh_stats$"))
