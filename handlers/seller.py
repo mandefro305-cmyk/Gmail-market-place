@@ -157,15 +157,57 @@ async def balance_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
         msg = f"💰 **Balance & Wallet**\n\n"
         msg += f"Available Balance: **{db_user.balance:.2f} ETB**\n\n"
         msg += "Select cashout / deposit options below or use commands:\n"
-        msg += "• `/withdraw <amount>` - Cashout funds\n"
+        msg += "• `/withdraw` - Cashout funds\n"
+        msg += "• `/payouts` - View payout history\n"
         msg += "• `/deposit <amount>` - Deposit funds"
 
         keyboard = InlineKeyboardMarkup([
             [InlineKeyboardButton("💳 Withdraw Cash", callback_data="wallet_withdraw")],
+            [InlineKeyboardButton("💳 Payout History", callback_data="wallet_payouts")],
             [InlineKeyboardButton("➕ Deposit Balance", callback_data="wallet_deposit")]
         ])
 
-        await update.message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+        else:
+            await update.effective_message.reply_text(msg, parse_mode="Markdown", reply_markup=keyboard)
+    finally:
+        db.close()
+
+async def payout_history_command(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if update.callback_query:
+        await update.callback_query.answer()
+
+    user = update.effective_user
+    db = SessionLocal()
+    try:
+        withdrawals = UserService.get_user_withdrawals(db, user.id)
+        if not withdrawals:
+            msg = "📜 **Payout History**\n\nYou have no payout/withdrawal history yet."
+            if update.callback_query:
+                await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+            else:
+                await update.effective_message.reply_text(msg, parse_mode="Markdown")
+            return
+
+        msg = "📜 **Payout History**\n\n"
+        for wd in withdrawals:
+            status_str = {
+                "PENDING": "⏳ Pending",
+                "APPROVED": "✅ Approved",
+                "REJECTED": f"❌ Rejected ({wd.rejection_reason or 'No reason'})"
+            }.get(wd.status.value if hasattr(wd.status, 'value') else wd.status, wd.status)
+
+            msg += (
+                f"🆔 `#{wd.id}` | **{wd.amount:.2f} ETB** via **{wd.method}**\n"
+                f"• Status: {status_str}\n"
+                f"• Details: `{wd.account_details}`\n\n"
+            )
+
+        if update.callback_query:
+            await update.callback_query.edit_message_text(msg, parse_mode="Markdown")
+        else:
+            await update.effective_message.reply_text(msg, parse_mode="Markdown")
     finally:
         db.close()
 
