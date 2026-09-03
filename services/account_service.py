@@ -104,17 +104,22 @@ class AccountService:
     def approve_account(
         session: Session,
         account_id: int,
-        selling_price: float,
-        creator_payout: float
+        selling_price: Optional[float] = None,
+        creator_payout: Optional[float] = None
     ) -> Account:
-        if selling_price < 0 or creator_payout < 0:
-            raise ValueError("Price and payout must be non-negative")
-
         account = session.query(Account).filter(Account.id == account_id).first()
         if not account:
             raise ValueError("Account not found")
         if account.status != AccountStatus.PENDING_REVIEW:
             raise ValueError(f"Account cannot be reviewed because its status is {account.status}")
+
+        if selling_price is None:
+            selling_price = account.selling_price if account.selling_price is not None else 0.0
+        if creator_payout is None:
+            creator_payout = account.creator_payout if account.creator_payout is not None else 0.0
+
+        if selling_price < 0 or creator_payout < 0:
+            raise ValueError("Price and payout must be non-negative")
 
         account.status = AccountStatus.APPROVED
         account.selling_price = selling_price

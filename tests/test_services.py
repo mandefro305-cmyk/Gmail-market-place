@@ -46,14 +46,14 @@ def test_admin_task_creation_and_user_submission(db_session):
     assert submitted.status == AccountStatus.PENDING_REVIEW
     assert submitted.creator_id == 50
 
-    # Admin approves submission and user earns creator_payout
+    # Admin approves submission without passing prices and user earns creator_payout automatically
     approved = AccountService.approve_account(
         session=db_session,
-        account_id=submitted.id,
-        selling_price=submitted.selling_price,
-        creator_payout=submitted.creator_payout
+        account_id=submitted.id
     )
     assert approved.status == AccountStatus.APPROVED
+    assert approved.creator_payout == 80.0
+    assert approved.selling_price == 250.0
     assert user.balance == 80.0
 
 def test_account_service_lifecycle(db_session):

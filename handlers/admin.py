@@ -362,9 +362,11 @@ async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYP
             return
 
         for acc in pending:
+            payout_val = acc.creator_payout or 0.0
+            price_val = acc.selling_price or 0.0
             keyboard = InlineKeyboardMarkup([
                 [
-                    InlineKeyboardButton("✅ Approve & Price", callback_data=f"adm_approve_{acc.id}"),
+                    InlineKeyboardButton("✅ Approve", callback_data=f"adm_approve_{acc.id}"),
                     InlineKeyboardButton("❌ Reject", callback_data=f"adm_reject_{acc.id}")
                 ]
             ])
@@ -373,6 +375,8 @@ async def list_pending_command(update: Update, context: ContextTypes.DEFAULT_TYP
                 f"📧 **Email:** `{acc.email}`\n"
                 f"🔑 **Password:** `{acc.password}`\n"
                 f"📩 **Recovery:** `{acc.recovery_info or 'N/A'}`\n"
+                f"💰 **Payout:** `{payout_val:.2f} ETB`\n"
+                f"💲 **Sell Price:** `{price_val:.2f} ETB`\n"
                 f"📝 **Notes:** `{acc.notes or 'None'}`\n"
                 f"👤 **Creator ID:** `{acc.creator_id}`\n"
             )
@@ -392,14 +396,30 @@ async def review_callback_handler(update: Update, context: ContextTypes.DEFAULT_
     data = query.data
     if data.startswith("adm_approve_"):
         account_id = int(data.split("_")[2])
-        context.user_data["review_acc_id"] = account_id
-        await query.edit_message_text(
-            f"✅ **Approving Account #{account_id}**\n\n"
-            f"Please enter selling price and creator payout in ETB separated by space.\n"
-            f"Example: `500 100` (Sell price 500 ETB, Creator payout 100 ETB):",
-            parse_mode="Markdown"
-        )
-        return REVIEW_SET_PRICES
+        db = SessionLocal()
+        try:
+            account = AccountService.approve_account(session=db, account_id=account_id)
+            payout_str = f"{account.creator_payout:.2f}" if account.creator_payout is not None else "0.00"
+            price_str = f"{account.selling_price:.2f}" if account.selling_price is not None else "0.00"
+            await query.edit_message_text(
+                f"🎉 **Account #{account.id} (`{account.email}`) APPROVED!**\n\n"
+                f"💵 **Creator Payout:** {payout_str} ETB (Credited to creator balance)\n"
+                f"💲 **Selling Price:** {price_str} ETB",
+                parse_mode="Markdown"
+            )
+            try:
+                await context.bot.send_message(
+                    chat_id=account.creator_id,
+                    text=f"🎉 **Account Approved!**\n\nYour submitted account `{account.email}` was approved! **{payout_str} ETB** credited to your balance.",
+                    parse_mode="Markdown"
+                )
+            except Exception:
+                pass
+        except ValueError as e:
+            await query.edit_message_text(f"❌ Approval error: {str(e)}")
+        finally:
+            db.close()
+        return ConversationHandler.END
 
     elif data.startswith("adm_reject_"):
         account_id = int(data.split("_")[2])
